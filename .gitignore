@@ -1,5 +1,13 @@
 build/
+build_raptor/
 bubble
+bubble_raptor
 out/
+out_ref/
+out_tf32/
+out_profile/
+out_compare/
 *.o
 *.d
+*.bin
+__pycache__/

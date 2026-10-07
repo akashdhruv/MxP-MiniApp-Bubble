@@ -1,0 +1,3 @@
+[submodule "dev/tools/RAPTOR"]
+	path = dev/tools/RAPTOR
+	url = git@github.com:RIKEN-RCCS/RAPTOR.git

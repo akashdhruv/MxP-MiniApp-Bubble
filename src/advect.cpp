@@ -30,6 +30,13 @@
 
 #include <cstddef>
 
+#ifdef BUBBLE_RAPTOR
+#include <cstdlib>
+#include <cstring>
+
+#include "raptor/raptor.h"
+#endif
+
 namespace {
 
 constexpr double kEps = 1.0e-15;  // Fortran: eps = 1e-15
@@ -77,6 +84,59 @@ double wenoFaceValue(double s1, double s2, double s3, double s4, double s5, bool
     return a1 * fT1 + a2 * fT2 + a3 * fT3;
 }
 
+#ifdef BUBBLE_RAPTOR
+// RAPTOR hook: BUBBLE_FP_MODE selects what wenoFaceValue() actually runs as,
+// scoped to just this kernel so the rest of the mini-app stays FP64.
+//   fp64    (default) -- the function above, unmodified.
+//   tf32    -- op-mode truncation to a tf32-like format (8 exponent, 10
+//              mantissa bits) via MPFR.
+//   profile -- logs every FP64 value flowing through the kernel to
+//              BUBBLE_FP_LOG (default "weno_flops_f64.bin") for
+//              raptor_plot_float_histogram.py.
+namespace {
+
+using WenoFn = double (*)(double, double, double, double, double, bool);
+
+enum class FpMode { kFp64, kTf32, kProfile };
+
+FpMode selectedFpMode() {
+    const char* mode = std::getenv("BUBBLE_FP_MODE");
+    if (mode != nullptr) {
+        if (std::strcmp(mode, "tf32") == 0) return FpMode::kTf32;
+        if (std::strcmp(mode, "profile") == 0) return FpMode::kProfile;
+    }
+    return FpMode::kFp64;
+}
+
+WenoFn callWeno() {
+    static const FpMode mode = selectedFpMode();
+    switch (mode) {
+        case FpMode::kTf32: {
+            static WenoFn fn = __raptor_truncate_op_func(wenoFaceValue, 64, 1, 8, 10);
+            return fn;
+        }
+        case FpMode::kProfile: {
+            // Constructed lazily, on the first call, only in profile mode: the
+            // other branches must never touch BUBBLE_FP_LOG or open the log.
+            static WenoFn fn = [] {
+                const char* path = std::getenv("BUBBLE_FP_LOG");
+                __raptor_set_flop_log_double(path != nullptr ? path : "weno_flops_f64.bin");
+                return __raptor_log_flops(wenoFaceValue);
+            }();
+            return fn;
+        }
+        default:
+            return wenoFaceValue;
+    }
+}
+
+}  // namespace
+
+#define WENO_CALL(...) callWeno()(__VA_ARGS__)
+#else
+#define WENO_CALL(...) wenoFaceValue(__VA_ARGS__)
+#endif  // BUBBLE_RAPTOR
+
 void advectWeno(const Grid& g, const std::vector<double>& phi, const std::vector<double>& u,
                 const std::vector<double>& v, std::vector<double>& rhs) {
     if (rhs.size() != g.size()) rhs.assign(g.size(), 0.0);
@@ -99,20 +159,20 @@ void advectWeno(const Grid& g, const std::vector<double>& phi, const std::vector
             double flx;
             double frx;
             if (ur > 0.0) {
-                frx = wenoFaceValue(phi[g.index(i - 2, j)], phi[g.index(i - 1, j)],
+                frx = WENO_CALL(phi[g.index(i - 2, j)], phi[g.index(i - 1, j)],
                                     phi[g.index(i, j)], phi[g.index(i + 1, j)],
                                     phi[g.index(i + 2, j)], true);
             } else {
-                frx = wenoFaceValue(phi[g.index(i - 1, j)], phi[g.index(i, j)],
+                frx = WENO_CALL(phi[g.index(i - 1, j)], phi[g.index(i, j)],
                                     phi[g.index(i + 1, j)], phi[g.index(i + 2, j)],
                                     phi[g.index(i + 3, j)], false);
             }
             if (ul > 0.0) {
-                flx = wenoFaceValue(phi[g.index(i - 3, j)], phi[g.index(i - 2, j)],
+                flx = WENO_CALL(phi[g.index(i - 3, j)], phi[g.index(i - 2, j)],
                                     phi[g.index(i - 1, j)], phi[g.index(i, j)],
                                     phi[g.index(i + 1, j)], true);
             } else {
-                flx = wenoFaceValue(phi[g.index(i - 2, j)], phi[g.index(i - 1, j)],
+                flx = WENO_CALL(phi[g.index(i - 2, j)], phi[g.index(i - 1, j)],
                                     phi[g.index(i, j)], phi[g.index(i + 1, j)],
                                     phi[g.index(i + 2, j)], false);
             }
@@ -121,20 +181,20 @@ void advectWeno(const Grid& g, const std::vector<double>& phi, const std::vector
             double fly;
             double fry;
             if (vr > 0.0) {
-                fry = wenoFaceValue(phi[g.index(i, j - 2)], phi[g.index(i, j - 1)],
+                fry = WENO_CALL(phi[g.index(i, j - 2)], phi[g.index(i, j - 1)],
                                     phi[g.index(i, j)], phi[g.index(i, j + 1)],
                                     phi[g.index(i, j + 2)], true);
             } else {
-                fry = wenoFaceValue(phi[g.index(i, j - 1)], phi[g.index(i, j)],
+                fry = WENO_CALL(phi[g.index(i, j - 1)], phi[g.index(i, j)],
                                     phi[g.index(i, j + 1)], phi[g.index(i, j + 2)],
                                     phi[g.index(i, j + 3)], false);
             }
             if (vl > 0.0) {
-                fly = wenoFaceValue(phi[g.index(i, j - 3)], phi[g.index(i, j - 2)],
+                fly = WENO_CALL(phi[g.index(i, j - 3)], phi[g.index(i, j - 2)],
                                     phi[g.index(i, j - 1)], phi[g.index(i, j)],
                                     phi[g.index(i, j + 1)], true);
             } else {
-                fly = wenoFaceValue(phi[g.index(i, j - 2)], phi[g.index(i, j - 1)],
+                fly = WENO_CALL(phi[g.index(i, j - 2)], phi[g.index(i, j - 1)],
                                     phi[g.index(i, j)], phi[g.index(i, j + 1)],
                                     phi[g.index(i, j + 2)], false);
             }
