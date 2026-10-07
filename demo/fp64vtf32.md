@@ -1,3 +1,4 @@
+```
 ▶ python3 tools/plot_compare.py --ref out_ref --cmp tf32=out_tf32 --all-steps
 plot_compare: 42 common frame(s), steps 0..20000
 plot_compare: step      0  t=0.000000  tf32 Linf=0.000e+00 RMS=0.000e+00
@@ -47,3 +48,4 @@ plot_compare: wrote out_compare/compare.gif (42 frames)
 plot_compare: wrote out_compare/error_vs_time.csv
 plot_compare: wrote out_compare/error_vs_time.png
 plot_compare: tf32     area drift  ref=2.8368%  tf32=2.8584%  delta=0.0216 pp
+```
