@@ -1,0 +1,5 @@
+build/
+bubble
+out/
+*.o
+*.d
